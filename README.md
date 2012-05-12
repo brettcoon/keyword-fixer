@@ -1,3 +1,8 @@
+Keyword-fixer
+=============
+A simple script based on smugpy to scrub keywords in SmugMug galleries.
+
+
 Smugpy
 ======
 
