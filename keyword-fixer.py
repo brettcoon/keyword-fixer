@@ -3,6 +3,7 @@
 from smugpy import SmugMug
 
 import re
+import time
 
 API_KEY = "yTTjttx2pkK1QSTIPS4geSsTzXZqtdxp"
 OAUTH_SECRET = "786c1e774f5d6c5dda7e92bdf7d4b30c"
@@ -23,8 +24,8 @@ print smugmug
 print "smugmug object END\n"
 
 # Basic flow:
-#  (1) Download keyword strings for images in albums matching album_re
-#      Input:  regular expression to limit albums
+#  (1) Download keyword strings for images in albums matching condition
+#      Input:  Condition to filter albums: regex, LastUpdated, ??
 #      Output: file mapping imageID to keyword string
 #  (2) Analyze keyword strings, suggest remapping
 #      Input:  file mapping imageID to keyword string
@@ -44,31 +45,50 @@ print "smugmug object END\n"
 #                           ["key"] : Image key
 #        ["keywords"][keyword]["cnt"] : Frequency
 #
+# Better data structure:
+# Struct Album:
+#   Id:
+#   Key:
+#   Images:  List of Image structs
+#
+# Struct Image:
+#   Id:
+#   Key:
+#   OrigKeywordString:
+#   OrigKeywords:  list()
+#   Keywords:  list() of proposed new keywords for image
+#
+# Struct Keyword:
+#   string Word:
+#   int	   Count:
+#   list   Variations:  typographically close variations, e.g. 1 letter
+#                	dropped, two letters swapped
+
+#
 # Generate map of each keyword with each letter removed
 #   Cross reference this list to identify letter swaps.  (how??)
+#   See http://norvig.com/spell-correct.html
 
 
 acnt = 0
-keyword_cnt = dict()
-keyword_dict = dict()
 keywords = dict()
-albums = smugmug.albums_get(NickName="brettcoon")
+months_ago = 3
+last_updated = int(time.time() - 3600*24*30*months_ago);
+albums = smugmug.albums_get(NickName="brettcoon",LastUpdated=last_updated)
 for album in albums["Albums"]:
     acnt = acnt + 1
     if acnt > 5:
       break
     albumID = album["id"]
     albumKey  = album["Key"]
-    image_list = smugmug.images_get(AlbumID=album["id"],AlbumKey=album["Key"])
+    image_list = smugmug.images_get(AlbumID=album["id"],
+				    AlbumKey=album["Key"],
+				    LastUpdated=last_updated)
     # for k in image_list["Album"].keys():
     #   print "%s, %s has key=%s" % (album["id"], album["Title"], k)
     print "%s, %s has %d images" % (album["id"], album["Title"],
                                     image_list["Album"]["ImageCount"])
     re_keydiv = re.compile(',\s*')
-    re_numonly = re.compile('^\d+$')
-    re_nummostly = re.compile('\d\d\d\d')
-    re_nonums = re.compile('^\D+$')
-    re_suspicious = re.compile('(^\d+$)|\W|\d{4}|(^$)')
     for image in image_list["Album"]["Images"]:
       imId = image["id"]
       imKey = image["Key"]
@@ -79,19 +99,31 @@ for album in albums["Albums"]:
       kwords = imInfo["Image"]["Keywords"]
       print "  image id=%s key=%s kwords='%s'" % (imId,imKey,kwords)
       for kw in re_keydiv.split(kwords):
-        # print "Found kw='%s'" % (kw)
-        if re_suspicious.search(kw):
-          print "** Found bad keyword='%s' in image (%s,%s)" % (kw,imId,imKey)
-        elif re.search(re_nummostly,kw):
-          print "** Found SUSPICIOUS kw=%s" % (kw)
-
         # Update count for this keyword
         if kw not in keywords:
           keywords[kw] = dict()
           keywords[kw]["cnt"] = 0
           keywords[kw]["images"] = list()
 
-        keywords[kw]["cnt"] = 1 + keywords[kw].get("cnt",0)
-        # Add this keyword to our list
-        keywords[kw].setdefault("images",list())
+        keywords[kw]["cnt"] = 1 + keywords[kw]["cnt"]
         keywords[kw]["images"].append((imId,imKey))
+
+re_numonly = re.compile('^\d+$')
+re_nummostly = re.compile('\d{5}')
+re_nonums = re.compile('^\D+$')
+re_inside_space = re.compile('^\S.*\s.*\S')
+re_suspicious = re.compile('(^\d+$)|\W|\d{4}|(^$)')
+for kw in keywords:
+    print "Keyword: %-30s  Cnt: %3d  " % (kw,keywords[kw]["cnt"]),
+    if re_inside_space.search(kw):
+	print " probably needs to be split better",
+    elif re_numonly.search(kw):
+	print " is BAD",
+    elif re_suspicious.search(kw):
+	print " is really SUSPICIOUS",
+    elif re_nummostly.search(kw):
+	print " is SUSPICIOUS",
+    print
+
+
+
